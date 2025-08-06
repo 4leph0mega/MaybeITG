@@ -12,9 +12,9 @@ This project uses the works of the following people and open-source projects:
 
 The core of this project is written in C++.
 
-### [Sol2](https://github.com/ThePhD/sol2)
-- **Author:** [ThePhD](https://github.com/ThePhD)
-- **Description:** A C++ library for binding Lua.
+### [LuaBridge]([https://github.com/ThePhD/sol2](https://github.com/vinniefalco/LuaBridge))
+- **Author:** [vinniefalco](https://github.com/vinniefalco)
+- **Description:** LuaBridge is a lightweight and dependency-free library for mapping data, functions, and classes back and forth between C++ and Lua
 - **License:** MIT
 
 ### [GLAD](https://github.com/Dav1dde/glad)
