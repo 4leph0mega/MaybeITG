@@ -5,3 +5,7 @@ A clone of NotITG, made from the ground up in lua and C++, with support for even
 
 
 ## This project uses the works of the following people
+
+**[Sol2](https://github.com/ThePhD/sol2)**
+Made by **[ThePhD](https://github.com/ThePhD/sol2)**
+sol2 is a C++ library binding to Lua.
