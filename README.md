@@ -27,3 +27,4 @@ The core of this project is written in C++.
 - **Description:** Lightweight scripting language used for modding and scripting in this project.
 - **License:** MIT
 
+<img src="Assets/Credits/lua.webp" alt="Lua Logo" width="100">
