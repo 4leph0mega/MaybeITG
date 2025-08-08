@@ -28,3 +28,9 @@ The core of this project is written in C++.
 - **License:** MIT
 
 <img src="Assets/Credits/lua.webp" alt="Lua Logo" width="100">
+
+### [stb_image]([https://github.com/Dav1dde/glad](https://github.com/nothings/stb))
+- **Author:** [Sean Barrett
+]([https://github.com/Dav1dde](https://github.com/nothings))
+- **Description:** stb single-file public domain libraries for C/C++.
+- **License:** MIT
