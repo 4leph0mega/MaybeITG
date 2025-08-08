@@ -1,92 +1,116 @@
+#define SDL_MAIN_HANDLED
 #include <SDL.h>
-#include <sol/sol.hpp>
+#include <glad/gl.h>
+#include <lua.hpp>
+#include <LuaBridge3/LuaBridge.h>
 #include <iostream>
 
-struct Window {
-    SDL_Window* window = nullptr;
-    int x, y, w, h;
-    bool borderless = false;
-    Uint8 r = 0, g = 0, b = 0;
+#include "Classes/Window.h"
+#include "Classes/DeviceInputManager.h"
+#include "Classes/ImageBuffer.h"
 
-    Window(const char* title, int xpos, int ypos, int width, int height, bool borderless_)
-        : x(xpos), y(ypos), w(width), h(height), borderless(borderless_)
-    {
-        Uint32 flags = SDL_WINDOW_SHOWN;
-        if (borderless) flags |= SDL_WINDOW_BORDERLESS;
+lua_State* L = nullptr;
+luabridge::LuaRef* luaUpdate = nullptr;  // pointer, initially nullptr
 
-        window = SDL_CreateWindow(title, x, y, w, h, flags);
-        if (!window) {
-            std::cerr << "SDL_CreateWindow Error: " << SDL_GetError() << std::endl;
-        }
-    }
-
-    ~Window() {
-        if (window) SDL_DestroyWindow(window);
-    }
-
-    void move(int new_x, int new_y) {
-        x = new_x; y = new_y;
-        if (window) SDL_SetWindowPosition(window, x, y);
-    }
-
-    void set_borderless(bool enabled) {
-        borderless = enabled;
-        if (window) SDL_SetWindowBordered(window, enabled ? SDL_FALSE : SDL_TRUE);
-    }
-
-    void set_color(Uint8 red, Uint8 green, Uint8 blue) {
-        r = red; g = green; b = blue;
-    }
-
-    void clear() {
-        if (!window) return;
-        SDL_Surface* surface = SDL_GetWindowSurface(window);
-        if (!surface) return;
-
-        SDL_FillRect(surface, NULL, SDL_MapRGB(surface->format, r, g, b));
-        SDL_UpdateWindowSurface(window);
-    }
-};
-
-int main(int argc, char* argv[]) {
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
-        std::cerr << "SDL_Init Error: " << SDL_GetError() << std::endl;
-        return 1;
-    }
-
-    sol::state lua;
-    lua.open_libraries(sol::lib::base, sol::lib::package);
-
-    // Expose Window to Lua (Sol 3.2.3 style)
-    lua.new_usertype<Window>("Window",
-        "new", [](const char* title, int xpos, int ypos, int width, int height, bool borderless_) {
-            return new Window(title, xpos, ypos, width, height, borderless_);
-        },
-        "move", &Window::move,
-        "set_borderless", &Window::set_borderless,
-        "set_color", &Window::set_color,
-        "clear", &Window::clear
-    );
-
-    sol::load_result script = lua.load_file("Game.lua");
-    if (!script.valid()) {
-        sol::error err = script;
-        std::cerr << "Failed to load game.lua: " << err.what() << std::endl;
-        SDL_Quit();
-        return 1;
-    }
-    script();
-
+void runMainLoop() {
     bool running = true;
-    SDL_Event event;
+    SDL_Event e;
+
     while (running) {
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_QUIT)
-                running = false;
+        while (SDL_PollEvent(&e)) {
+            if (e.type == SDL_QUIT) running = false;
+            DeviceInputManager::get().handleEvent(e);
         }
-        SDL_Delay(10);
+
+        if (luaUpdate && luaUpdate->isFunction()) {
+            try {
+                (*luaUpdate)();
+            } catch (const std::exception& err) {
+                std::cerr << "Lua Update error: " << err.what() << std::endl;
+                running = false;
+            }
+        }
+
+        SDL_Delay(16); // ~60 FPS
+    }
+}
+
+void bindToLua(lua_State* L) {
+    using namespace luabridge;
+
+    getGlobalNamespace(L)
+        .beginClass<Window>("Window")
+            .addConstructor<void(*)(const char*, int, int, int, int, bool)>()
+            .addFunction("setFullscreen", &Window::setFullscreen)
+            .addFunction("setBorderless", &Window::setBorderless)
+            .addFunction("setVSync", &Window::setVSync)
+            .addFunction("setTitle", &Window::setTitle)
+            .addFunction("move", &Window::move)
+            .addFunction("resize", &Window::resize)
+            .addFunction("getX", &Window::getX)
+            .addFunction("getY", &Window::getY)
+            .addFunction("getWidth", &Window::getWidth)
+            .addFunction("getHeight", &Window::getHeight)
+            .addFunction("renderImageBuffer", &Window::renderImageBuffer)
+        .endClass()
+
+        .beginClass<DeviceInputManager>("DeviceInput")
+            .addStaticFunction("get", &DeviceInputManager::get)
+            .addFunction("IsKeyPressed", &DeviceInputManager::IsKeyPressed)
+            .addFunction("IsPressedDown", &DeviceInputManager::IsPressedDown)
+            .addFunction("MouseX", &DeviceInputManager::MouseX)
+            .addFunction("MouseY", &DeviceInputManager::MouseY)
+            .addFunction("MouseWindowX", &DeviceInputManager::MouseWindowX)
+            .addFunction("MouseWindowY", &DeviceInputManager::MouseWindowY)
+            .addFunction("MousePressed", &DeviceInputManager::MousePressed)
+        .endClass()
+
+        .beginClass<ImageBuffer>("ImageBuffer")
+            .addConstructor<void(*)()>()
+            .addFunction("loadFromFile", &ImageBuffer::loadFromFile)
+            .addFunction("getWidth", &ImageBuffer::getWidth)
+            .addFunction("getHeight", &ImageBuffer::getHeight)
+            .addFunction("getTextureID", &ImageBuffer::getTextureID)
+        .endClass();
+}
+
+int main() {
+    L = luaL_newstate();
+    if (!L) {
+        std::cerr << "Failed to create Lua state" << std::endl;
+        return 1;
+    }
+    luaL_openlibs(L);
+
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0) {
+        std::cerr << "SDL_Init failed: " << SDL_GetError() << std::endl;
+        lua_close(L);
+        return 1;
     }
 
+    bindToLua(L);
+
+    if (luaL_dofile(L, "game.lua") == LUA_OK) {
+        // Create the LuaRef on the heap, initialized with Lua state
+        luaUpdate = new luabridge::LuaRef(luabridge::getGlobal(L, "Update"));
+    } else {
+        std::cerr << "Error loading game.lua: " << lua_tostring(L, -1) << std::endl;
+        lua_pop(L, 1);
+    }
+
+    runMainLoop();
+
+    // Clean up LuaRef pointer
+    delete luaUpdate;
+
+    lua_close(L);
     SDL_Quit();
     return 0;
 }
+
+#ifdef _WIN32
+#include <windows.h>
+int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
+    return main();
+}
+#endif
